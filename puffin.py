@@ -13,7 +13,6 @@ class Puffin(nn.Module):
 
         super(Puffin, self).__init__()
         self.conv = nn.Conv1d(4, 10, kernel_size=51, padding=25)
-
         self.conv_inr = nn.Conv1d(4, 10, kernel_size=15, padding=7)
         self.conv_sim = nn.Conv1d(4, 32, kernel_size=3, padding=1)
 
@@ -21,8 +20,8 @@ class Puffin(nn.Module):
         self.softplus = nn.Softplus()
 
         self.deconv = FFTConv1d(10 * 2, 10, kernel_size=601, padding=300)
-        self.deconv_sim = FFTConv1d(64, 10, kernel_size=601, padding=300)
         self.deconv_inr = nn.ConvTranspose1d(20, 10, kernel_size=15, padding=7)
+        self.deconv_sim = FFTConv1d(64, 10, kernel_size=601, padding=300)
 
         self.scaler = nn.Parameter(torch.ones(1))
         self.scaler2 = nn.Parameter(torch.ones(1))
@@ -70,7 +69,25 @@ class Puffin(nn.Module):
         self.load_state_dict(self.state_dict, strict=False)
 
     def forward(self, x):
-        y = torch.cat([self.conv(x), self.conv(x.flip([1, 2])).flip([2])], 1)
+        # one-hot ACGT 
+        #x: tensor([[[0., 0., 0.,  ..., 0., 0., 0.],
+        #           [0., 1., 0.,  ..., 0., 0., 1.],
+        #           [1., 0., 1.,  ..., 1., 1., 0.],
+        #           [0., 0., 0.,  ..., 0., 0., 0.]]]) 
+        #x.flip([1, 2]) typically represents the reverse complement of a DNA sequence x.
+        flip_x = x.flip([1, 2]) # 4*seq_size -> 4*seq_size 左右+上下翻转 = x的反向互补链
+        # print("x\n:",x,"\n")
+        # print("flip_x\n:",flip_x,"\n")
+        # flip_x_2 = flip_x.flip([2])
+        # print("flip_x_2\n:",flip_x_2,"\n")
+        conv_x = self.conv(x)# 4*seq_size -> 10*seq_size
+        conv_flip_x = self.conv(flip_x)# 4*seq_size -> 10*seq_size
+
+        conv_flip_x_flip = conv_flip_x.flip([2]) # 左右翻转 = x的反向互补链卷积结果，再互补链
+
+        list_x = [conv_x, conv_flip_x_flip]
+        y = torch.cat(list_x, 1) # 20*seq_size
+        
         y_sim = torch.cat(
             [self.conv_sim(x), self.conv_sim(x.flip([1, 2])).flip([2])], 1
         )
@@ -85,13 +102,16 @@ class Puffin(nn.Module):
         y_pred = self.softplus(
             self.deconv(yact) + self.deconv_inr(y_inr_act) + self.deconv_sim(y_sim_act)
         )
-        return y_pred
+        return y_pred # 10*seq_size
 
     def predict(self, seq_bp):
-
+        """
+        Predict transcription initiation single. model input: seq
+        len(seq_bp) = len(seq) - 650
+        """
         if self.use_cuda:
             self.cuda()
-
+        # One-hot encoding
         seq = sequences.sequence_to_encoding(
             seq_bp,
             base_to_index={
@@ -108,7 +128,7 @@ class Puffin(nn.Module):
         )
         seq_bp = seq_bp[325:-325]
 
-        if self.use_cuda:
+        if self.use_cuda: # forward
             pred0 = self(torch.FloatTensor(seq)[None, :, :].transpose(1, 2).cuda())
             pred0 = pred0.detach().cpu().numpy()
         else:
@@ -134,7 +154,9 @@ class Puffin(nn.Module):
     def basepair_contribution_transcription_initiation(
         self, seq, targeti, motifnames_original
     ):
-
+        """
+        The contribution of nucleotides to transcription initiation.
+        """
         halfwindow = int((len(seq) - 650) / 2)
 
         tss_contr = {}
@@ -142,7 +164,7 @@ class Puffin(nn.Module):
         if self.use_cuda:
             seqt = torch.FloatTensor(seq)[None, :, :].transpose(1, 2).cuda()
         else:
-            seqt = torch.FloatTensor(seq)[None, :, :].transpose(1, 2)
+            seqt = torch.FloatTensor(seq)[None, :, :].transpose(1, 2) #transposition
         preact_motif = torch.cat(
             [self.conv(seqt), self.conv(seqt.flip([1, 2])).flip([2])], 1
         )
@@ -176,7 +198,7 @@ class Puffin(nn.Module):
             )
 
             center = int(pred.shape[2] / 2)
-            predexp = (
+            predexp = ( # 1 * real_seqlen
                 10
                 ** (
                     pred[:, targeti, center - halfwindow : center + halfwindow]
@@ -239,7 +261,7 @@ class Puffin(nn.Module):
         else:
             seqt = torch.FloatTensor(seq)[None, :, :].transpose(1, 2)
 
-        for j in range(20):
+        for j in range(20): #copy 20
             seqts.append(seqt)
 
         seqt = torch.cat(seqts, axis=0)
@@ -256,7 +278,7 @@ class Puffin(nn.Module):
         else:
             ((postact_motif[:, :, :] * torch.eye(20)[:, :, None]) ** 2).sum().backward()
 
-        motifact_seq = (
+        motifact_seq = ( # 20 * 1351
             (seqt.grad * seqt.data).sum(axis=1).cpu().detach().numpy()
             - (seqt.grad * (1 - seqt.data)).sum(axis=1).cpu().detach().numpy() / 3
         )[..., 325:-325]
@@ -317,15 +339,18 @@ class Puffin(nn.Module):
             "TATA+",
         ]
 
+        # Predict
         if self.use_cuda:
             pred0 = self(torch.FloatTensor(seq)[None, :, :].transpose(1, 2).cuda())
         else:
             pred0 = self(torch.FloatTensor(seq)[None, :, :].transpose(1, 2))
 
-        tss_contr = self.basepair_contribution_transcription_initiation(
+        # Basepair contribution score to transcription initiation per motif *18
+        tss_contr = self.basepair_contribution_transcription_initiation( # dist(10 * dist(20))
             seq, targeti, motifnames_original
         )
-        motif_contr = self.basepair_contribution_motif(
+        # Basepair contribution score to motif activation *18
+        motif_contr = self.basepair_contribution_motif( # dist(20)
             seq, targeti, motifnames_original
         )
 
@@ -390,7 +415,8 @@ class Puffin(nn.Module):
             mw = self.conv.weight.cpu().detach().numpy().max(axis=2).max(axis=1)
 
         else:
-            preact_motif = torch.cat(
+            # Motif 
+            preact_motif = torch.cat( # 20 * seqlen
                 [
                     self.conv(torch.FloatTensor(seq)[None, :, :].transpose(1, 2)),
                     self.conv(
@@ -431,8 +457,8 @@ class Puffin(nn.Module):
             postact_sim = postact_sim
             effects_sim = self.deconv_sim(postact_sim).detach().numpy()
 
-            w = self.deconv.weight[0, :, :].detach().numpy().max(axis=1)
-            mw = self.conv.weight.detach().numpy().max(axis=2).max(axis=1)
+            w = self.deconv.weight[0, :, :].detach().numpy().max(axis=1) # 20
+            mw = self.conv.weight.detach().numpy().max(axis=2).max(axis=1) # 10
 
         w = w * np.concatenate([mw, mw])
         inds = np.argsort(-w)
@@ -440,39 +466,45 @@ class Puffin(nn.Module):
         motifact_offsets = np.zeros(len(motifnames_original))
 
         colors = [self.colordict[m] for m in motifnames_original]
+
+        # Motif activation
         motif_activation = {}
         for i in inds:
             motifactivation = postact_motif[0, i, 325:-325].detach().cpu().numpy().T
-            motif_activation[motifnames_original[i]] = motifactivation - np.min(
+            motif_activation[motifnames_original[i]] = motifactivation - np.min( # 将激活分数做了最小值平移（减去最小值）
                 motifactivation
-            )
+            ) # 20 * seqlen
 
         dweight = self.deconv.weight.cpu().detach().numpy()
+        # Motif Effects
         effects_motifs = {}
         for i in inds:
-            effects_motif = np.convolve(
-                postact_motif[0, i, :].detach().cpu().numpy(),
-                dweight[targeti, i, ::-1],
+            effects_motif = np.convolve( # 将 postact_motif 与 dweight 进行卷积
+                postact_motif[0, i, :].detach().cpu().numpy(),#1*20*2000
+                dweight[targeti, i, ::-1],#1*20*601
                 mode="same",
-            )[325:-325]
+            )[325:-325] #1350
             effects_motifs[motifnames_original[i]] = effects_motif
             if motifnames_original[i] == "Long Inr+":
                 effects_longinr = effects_motif
             elif motifnames_original[i] == "Long Inr-":
                 effects_longinr_rev = effects_motif
 
+        # Sum of initiator effects
+        # Sum of trinucleotide effects
         effect_inr = effects_inr[0, targeti, 325:-325]
         effect_sim = effects_sim[0, targeti, 325:-325]
 
         effect_inr = effect_inr + effects_longinr
         effect_inr = effect_inr - np.mean(effect_inr)
         effect_sim = effect_sim - np.mean(effect_sim)
-
+        # Sum of motif effects
         effect_motif = (
             np.vstack(list(effects_motifs.values())).sum(axis=0)
             - effects_longinr
             - effects_longinr_rev
         )
+        # Sum of total effects
         effect_final = (
             effect_inr
             + effect_sim
@@ -483,6 +515,7 @@ class Puffin(nn.Module):
         pred0 = pred0.detach().cpu().numpy()[0, :, 325:-325]
 
         lines = {}
+        # Coordinate and Sequence
         lines["Coordinate"] = list(range(len(seq_bp)))
         lines["Sequence"] = list(seq_bp)
 
@@ -608,166 +641,182 @@ class Puffin(nn.Module):
 
 
 if __name__ == "__main__":
-    from docopt import docopt
-    import sys
 
-    doc = """
-    Puffin outputs transcription inititation signal prediciton for the input genome sequence.
+    puffin = Puffin(use_cuda=False)
+    sequence ="GCGGCCTCCAGATGGTCTGGGAGGGCAGTTCAGCTGTGGCTGCGCATAGCAGACATACAACGGACGGTGGGCCCAGACCCAGGCTGTGTAGACCCAGCCCCCCCGCCCCGCAGTGCCTAGGTCACCCACTAACGCCCCAGGCCTTGTCTTGGCTGGGCGTGACTGTTACCCTCAAAAGCAGGCAGCTCCAGGGTAAAAGGTGCCCTGCCCTGTAGAGCCCACCTTCCTTCCCAGGGCTGCGGCTGGGTAGGTTTGTAGCCTTCATCACGGGCCACCTCCAGCCACTGGACCGCTGGCCCCTGCCCTGTCCTGGGGAGTGTGGTCCTGCGACTTCTAAGTGGCCGCAAGCCACCTGACTCCCCCAACACCACACTCTACCTCTCAAGCCCAGGTCTCTCCCTAGTGACCCACCCAGCACATTTAGCTAGCTGAGCCCCACAGCCAGAGGTCCTCAGGCCCTGCTTTCAGGGCAGTTGCTCTGAAGTCGGCAAGGGGGAGTGACTGCCTGGCCACTCCATGCCCTCCAAGAGCTCCTTCTGCAGGAGCGTACAGAACCCAGGGCCCTGGCACCCGTGCAGACCCTGGCCCACCCCACCTGGGCGCTCAGTGCCCAAGAGATGTCCACACCTAGGATGTCCCGCGGTGGGTGGGGGGCCCGAGAGACGGGCAGGCCGGGGGCAGGCCTGGCCATGCGGGGCCGAACCGGGCACTGCCCAGCGTGGGGCGCGGGGGCCACGGCGCGCGCCCCCAGCCCCCGGGCCCAGCACCCCAAGGCGGCCAACGCCAAAACTCTCCCTCCTCCTCTTCCTCAATCTCGCTCTCGCTCTTTTTTTTTTTCGCAAAAGGAGGGGAGAGGGGGTAAAAAAATGCTGCACTGTGCGGCGAAGCCGGTGAGTGAGCGGCGCGGGGCCAATCAGCGTGCGCCGTTCCGAAAGTTGCCTTTTATGGCTCGAGCGGCCGCGGCGGCGCCCTATAAAACCCAGCGGCGCGACGCGCCACC|ACCGCCGAGACCGCGTCCGCCCCGCGAGCACAGAGCCTCGCCTTTGCCGATCCGCCGCCCGTCCACACCCGCCGCCAGGTAAGCCCGGCCAGCCGACCGGGGCAGGCGGCTCACGGCCCGGCCGCAGGCGGCCGCGGCCCCTTCGCCCGTGCAGAGCCGCCGTCTGGGCCGCAGCGGGGGGCGCATGGGGGGGGAACCGGACCGCCGTGGGGGGCGCGGGAGAAGCCCCTGGGCCTCCGGAGATGGGGGACACCCCACGCCAGTTCGGAGGCGCGAGGCCGCGCTCGGGAGGCGCGCTCCGGGGGTGCCGCTCTCGGGGCGGGGGCAACCGGCGGGGTCTTTGTCTGAGCCGGGCTCTTGCCAATGGGGATCGCAGGGTGGGCGCGGCGGAGCCCCCGCCAGGCCCGGTGGGGGCTGGGGCGCCATTGCGCGTGCGCGCTGGTCCTTTGGGCGCTAACTGCGTGCGCGCTGGGAATTGGCGCTAATTGCGCGTGCGCGCTGGGACTCAAGGCGCTAACTGCGCGTGCGTTCTGGGGCCCGGGGTGCCGCGGCCTGGGCTGGGGCGAAGGCGGGCTCGGCCGGAAGGGGTGGGGTCGCCGCGGCTCCCGGGCGCTTGCGCGCACTTCCTGCCCGAGCCGCTGGCCGCCCGAGGGTGTGGCCGCTGCGTGCGCGCGCGCCGACCCGGCGCTGTTTGAACCGGGCGGAGGCGGGGCTGGCGCCCGGTTGGGAGGGGGTTGGGGCCTGGCTTCCTGCCGCGCGCCGCGGGGACGCCTCCGACCAGTGTTTGCCTTTTATGGTAATAACGCGGCCGGCCCGGCTTCCTTTGTCCCCAATCTGGGCGCGCGCCGGCGCCCCCTGGCGGCCTAAGGACTCGGCGCGCCGGAAGTGGCCAGGGCGGGGGCGACCTCGGCTCACAGCGCGCCCGGCTATTCTCGCAGCTCACCATGGATGATGATATCGCCGCGCTCGTCGTCGACAACGGCTCCGGCATGTGCAAGGC"
+    print(len(sequence))#2001
     
-    Usage:
-    puffin_predict coord [options] <coordinate>
-    puffin_predict sequence [options] <fasta_file_path>
-    puffin_predict region [options] <tsv_file>
+    # predict = puffin.predict(sequence)
+    # print(predict)
+    # predict.to_csv("predict.csv")
+    # print("predict Done!")
     
-    Options:
-    -h --help        Show this screen.
-    --no_interpretation     leave only Puffin prediction
-    --targeti <targeti> experimental method targets (FANTOM_CAGE, ENCODE_CAGE, ENCODE_RAMPAGE, GRO_CAP, PRO_CAP) 
-    --both_strands       generate predicion for the opposite strand
-    --cuda   use cuda to generate the prediction 
-    """
+    interpret = puffin.interpret(sequence, targeti='FANTOM_CAGE')
+    print(interpret)
+    interpret.to_csv("interpret.csv")
+    print("interpret Done!")
+    print()
 
-    if len(sys.argv) == 1:
-        sys.argv.append("-h")
+    # from docopt import docopt
+    # import sys
 
-    arguments = docopt(doc)
+    # doc = """
+    # Puffin outputs transcription inititation signal prediciton for the input genome sequence.
+    
+    # Usage:
+    # puffin_predict coord [options] <coordinate>
+    # puffin_predict sequence [options] <fasta_file_path>
+    # puffin_predict region [options] <tsv_file>
+    
+    # Options:
+    # -h --help        Show this screen.
+    # --no_interpretation     leave only Puffin prediction
+    # --targeti <targeti> experimental method targets (FANTOM_CAGE, ENCODE_CAGE, ENCODE_RAMPAGE, GRO_CAP, PRO_CAP) 
+    # --both_strands       generate predicion for the opposite strand
+    # --cuda   use cuda to generate the prediction 
+    # """
 
-    if arguments["--targeti"]:
-        targeti = arguments["--targeti"]
-    else:
-        targeti = "FANTOM_CAGE"
-    print("making " + targeti + " prediction")
+    # if len(sys.argv) == 1:
+    #     sys.argv.append("-h")
 
-    if arguments["--cuda"]:
-        use_cuda = True
-    else:
-        use_cuda = False
+    # arguments = docopt(doc)
 
-    ###load model###
-    net = Puffin(use_cuda)
+    # if arguments["--targeti"]:
+    #     targeti = arguments["--targeti"]
+    # else:
+    #     targeti = "FANTOM_CAGE"
+    # print("making " + targeti + " prediction")
 
-    ###load genome###
-    genome_path = "./resources/hg38.fa"
-    genome = selene_sdk.sequences.Genome(input_path=genome_path)
+    # if arguments["--cuda"]:
+    #     use_cuda = True
+    # else:
+    #     use_cuda = False
 
-    seq_list = []
-    name_list = []
-    if arguments["coord"]:
-        chrm, poss = arguments["<coordinate>"].split(":")
-        strand = arguments["<coordinate>"][-1]
-        start, end = poss[:-1].split("-")
-        start = int(start)
-        end = int(end)
+    # ###load model###
+    # net = Puffin(use_cuda)
 
-        if strand == "-":
-            offset = 1
-            strand_ = "minus"
-        else:
-            offset = 0
-            strand_ = "plus"
+    # ###load genome###
+    # genome_path = "./resources/hg38.fa"
+    # genome = selene_sdk.sequences.Genome(input_path=genome_path)
 
-        seq_bp = genome.get_sequence_from_coords(
-            chrm, start + offset, end + offset, strand
-        )
+    # seq_list = []
+    # name_list = []
+    # if arguments["coord"]:
+    #     chrm, poss = arguments["<coordinate>"].split(":")
+    #     strand = arguments["<coordinate>"][-1]
+    #     start, end = poss[:-1].split("-")
+    #     start = int(start)
+    #     end = int(end)
 
-        if len(seq_bp) < 651:
-            print(
-                "Minimum input sequence lenght should be > 651 bps, current sequence length is "
-                + str(len(seq_bp))
-                + " bps"
-            )
-            quit()
-        else:
-            seq_list.append(seq_bp)
-            name = "puffin_" + chrm + "_" + str(start) + "_" + str(end) + "_" + strand_
-            name_list.append(name)
+    #     if strand == "-":
+    #         offset = 1
+    #         strand_ = "minus"
+    #     else:
+    #         offset = 0
+    #         strand_ = "plus"
 
-    if arguments["sequence"]:
-        fasta_file = open(arguments["<fasta_file_path>"], "r")
-        for line in fasta_file:
-            if line[0] == ">":
-                name = line[1:-1]
+    #     seq_bp = genome.get_sequence_from_coords(
+    #         chrm, start + offset, end + offset, strand
+    #     )
 
-            else:
-                seq_bp = line
-                if len(seq_bp) < 651:
-                    print(
-                        "Minimum input sequence lenght should be > 651 bps, current sequence length is "
-                        + str(len(seq_bp))
-                        + " bps"
-                    )
-                    continue
-                else:
-                    seq_list.append(seq_bp)
+    #     if len(seq_bp) < 651:
+    #         print(
+    #             "Minimum input sequence lenght should be > 651 bps, current sequence length is "
+    #             + str(len(seq_bp))
+    #             + " bps"
+    #         )
+    #         quit()
+    #     else:
+    #         seq_list.append(seq_bp)
+    #         name = "puffin_" + chrm + "_" + str(start) + "_" + str(end) + "_" + strand_
+    #         name_list.append(name)
 
-                    for s in [
-                        "#",
-                        "%",
-                        "&",
-                        "{",
-                        "}",
-                        "<",
-                        ">",
-                        "*",
-                        "?",
-                        "/",
-                        " ",
-                        "$",
-                        "!",
-                        "'",
-                        '"',
-                        ":",
-                        "@",
-                    ]:
-                        name = name.replace(s, "_")
-                    name_list.append(name)
+    # if arguments["sequence"]:
+    #     fasta_file = open(arguments["<fasta_file_path>"], "r")
+    #     for line in fasta_file:
+    #         if line[0] == ">":
+    #             name = line[1:-1]
 
-    if arguments["region"]:
-        tsv_file = pd.read_csv(arguments["<tsv_file>"], sep="\t")
+    #         else:
+    #             seq_bp = line
+    #             if len(seq_bp) < 651:
+    #                 print(
+    #                     "Minimum input sequence lenght should be > 651 bps, current sequence length is "
+    #                     + str(len(seq_bp))
+    #                     + " bps"
+    #                 )
+    #                 continue
+    #             else:
+    #                 seq_list.append(seq_bp)
 
-        for i in range(len(tsv_file)):
-            chrm = tsv_file["chr"].values[i]
-            start = tsv_file["start"].values[i]
-            end = tsv_file["end"].values[i]
-            strand = tsv_file["strand"].values[i]
-            start = int(start)
-            end = int(end)
+    #                 for s in [
+    #                     "#",
+    #                     "%",
+    #                     "&",
+    #                     "{",
+    #                     "}",
+    #                     "<",
+    #                     ">",
+    #                     "*",
+    #                     "?",
+    #                     "/",
+    #                     " ",
+    #                     "$",
+    #                     "!",
+    #                     "'",
+    #                     '"',
+    #                     ":",
+    #                     "@",
+    #                 ]:
+    #                     name = name.replace(s, "_")
+    #                 name_list.append(name)
 
-            if strand == "-":
-                offset = 1
-                strand_ = "minus"
-            else:
-                offset = 0
-                strand_ = "plus"
+    # if arguments["region"]:
+    #     tsv_file = pd.read_csv(arguments["<tsv_file>"], sep="\t")
 
-            seq_bp = genome.get_sequence_from_coords(
-                chrm, start + offset, end + offset, strand
-            )
+    #     for i in range(len(tsv_file)):
+    #         chrm = tsv_file["chr"].values[i]
+    #         start = tsv_file["start"].values[i]
+    #         end = tsv_file["end"].values[i]
+    #         strand = tsv_file["strand"].values[i]
+    #         start = int(start)
+    #         end = int(end)
 
-            if len(seq_bp) < 651:
-                print(
-                    "Minimum input sequence lenght should be > 651 bps, current sequence length is "
-                    + str(len(seq_bp))
-                    + " bps"
-                )
-                quit()
-            else:
-                seq_list.append(seq_bp)
-                name = (
-                    "puffin_" + chrm + "_" + str(start) + "_" + str(end) + "_" + strand_
-                )
-                name_list.append(name)
+    #         if strand == "-":
+    #             offset = 1
+    #             strand_ = "minus"
+    #         else:
+    #             offset = 0
+    #             strand_ = "plus"
 
-    for seq_bp, name in zip(seq_list, name_list):
-        if arguments["--no_interpretation"]:
-            df = net.predict(seq_bp)
-        else:
-            df = net.interpret(seq_bp, targeti=targeti)
-        df.to_csv(name + ".csv")
-        print(name + " Done!")
+    #         seq_bp = genome.get_sequence_from_coords(
+    #             chrm, start + offset, end + offset, strand
+    #         )
 
-        if arguments["--both_strands"]:
+    #         if len(seq_bp) < 651:
+    #             print(
+    #                 "Minimum input sequence lenght should be > 651 bps, current sequence length is "
+    #                 + str(len(seq_bp))
+    #                 + " bps"
+    #             )
+    #             quit()
+    #         else:
+    #             seq_list.append(seq_bp)
+    #             name = (
+    #                 "puffin_" + chrm + "_" + str(start) + "_" + str(end) + "_" + strand_
+    #             )
+    #             name_list.append(name)
 
-            df = net.interpret(seq_bp, targeti=targeti, reverse_strand=True)
-            df.to_csv(name + "_rev_strand.csv")
-            print("Reverse strand done!")
+    # for seq_bp, name in zip(seq_list, name_list):
+    #     if arguments["--no_interpretation"]:
+    #         df = net.predict(seq_bp)
+    #     else:
+    #         df = net.interpret(seq_bp, targeti=targeti)
+    #     df.to_csv(name + ".csv")
+    #     print(name + " Done!")
+
+    #     if arguments["--both_strands"]:
+
+    #         df = net.interpret(seq_bp, targeti=targeti, reverse_strand=True)
+    #         df.to_csv(name + "_rev_strand.csv")
+    #         print("Reverse strand done!")

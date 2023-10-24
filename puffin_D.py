@@ -345,147 +345,159 @@ class Puffin_D(nn.Module):
 
 
 if __name__ == "__main__":
-    import sys
-    from docopt import docopt
 
-    doc = """
-    Puffin outputs transcription inititation signal prediciton for the input genome sequence.
+    puffin_d = Puffin_D(use_cuda=False)
+    sequence ="GCGGCCTCCAGATGGTCTGGGAGGGCAGTTCAGCTGTGGCTGCGCATAGCAGACATACAACGGACGGTGGGCCCAGACCCAGGCTGTGTAGACCCAGCCCCCCCGCCCCGCAGTGCCTAGGTCACCCACTAACGCCCCAGGCCTTGTCTTGGCTGGGCGTGACTGTTACCCTCAAAAGCAGGCAGCTCCAGGGTAAAAGGTGCCCTGCCCTGTAGAGCCCACCTTCCTTCCCAGGGCTGCGGCTGGGTAGGTTTGTAGCCTTCATCACGGGCCACCTCCAGCCACTGGACCGCTGGCCCCTGCCCTGTCCTGGGGAGTGTGGTCCTGCGACTTCTAAGTGGCCGCAAGCCACCTGACTCCCCCAACACCACACTCTACCTCTCAAGCCCAGGTCTCTCCCTAGTGACCCACCCAGCACATTTAGCTAGCTGAGCCCCACAGCCAGAGGTCCTCAGGCCCTGCTTTCAGGGCAGTTGCTCTGAAGTCGGCAAGGGGGAGTGACTGCCTGGCCACTCCATGCCCTCCAAGAGCTCCTTCTGCAGGAGCGTACAGAACCCAGGGCCCTGGCACCCGTGCAGACCCTGGCCCACCCCACCTGGGCGCTCAGTGCCCAAGAGATGTCCACACCTAGGATGTCCCGCGGTGGGTGGGGGGCCCGAGAGACGGGCAGGCCGGGGGCAGGCCTGGCCATGCGGGGCCGAACCGGGCACTGCCCAGCGTGGGGCGCGGGGGCCACGGCGCGCGCCCCCAGCCCCCGGGCCCAGCACCCCAAGGCGGCCAACGCCAAAACTCTCCCTCCTCCTCTTCCTCAATCTCGCTCTCGCTCTTTTTTTTTTTCGCAAAAGGAGGGGAGAGGGGGTAAAAAAATGCTGCACTGTGCGGCGAAGCCGGTGAGTGAGCGGCGCGGGGCCAATCAGCGTGCGCCGTTCCGAAAGTTGCCTTTTATGGCTCGAGCGGCCGCGGCGGCGCCCTATAAAACCCAGCGGCGCGACGCGCCACC|ACCGCCGAGACCGCGTCCGCCCCGCGAGCACAGAGCCTCGCCTTTGCCGATCCGCCGCCCGTCCACACCCGCCGCCAGGTAAGCCCGGCCAGCCGACCGGGGCAGGCGGCTCACGGCCCGGCCGCAGGCGGCCGCGGCCCCTTCGCCCGTGCAGAGCCGCCGTCTGGGCCGCAGCGGGGGGCGCATGGGGGGGGAACCGGACCGCCGTGGGGGGCGCGGGAGAAGCCCCTGGGCCTCCGGAGATGGGGGACACCCCACGCCAGTTCGGAGGCGCGAGGCCGCGCTCGGGAGGCGCGCTCCGGGGGTGCCGCTCTCGGGGCGGGGGCAACCGGCGGGGTCTTTGTCTGAGCCGGGCTCTTGCCAATGGGGATCGCAGGGTGGGCGCGGCGGAGCCCCCGCCAGGCCCGGTGGGGGCTGGGGCGCCATTGCGCGTGCGCGCTGGTCCTTTGGGCGCTAACTGCGTGCGCGCTGGGAATTGGCGCTAATTGCGCGTGCGCGCTGGGACTCAAGGCGCTAACTGCGCGTGCGTTCTGGGGCCCGGGGTGCCGCGGCCTGGGCTGGGGCGAAGGCGGGCTCGGCCGGAAGGGGTGGGGTCGCCGCGGCTCCCGGGCGCTTGCGCGCACTTCCTGCCCGAGCCGCTGGCCGCCCGAGGGTGTGGCCGCTGCGTGCGCGCGCGCCGACCCGGCGCTGTTTGAACCGGGCGGAGGCGGGGCTGGCGCCCGGTTGGGAGGGGGTTGGGGCCTGGCTTCCTGCCGCGCGCCGCGGGGACGCCTCCGACCAGTGTTTGCCTTTTATGGTAATAACGCGGCCGGCCCGGCTTCCTTTGTCCCCAATCTGGGCGCGCGCCGGCGCCCCCTGGCGGCCTAAGGACTCGGCGCGCCGGAAGTGGCCAGGGCGGGGGCGACCTCGGCTCACAGCGCGCCCGGCTATTCTCGCAGCTCACCATGGATGATGATATCGCCGCGCTCGTCGTCGACAACGGCTCCGGCATGTGCAAGGC"
+    print(len(sequence))#2001
     
-    Usage:
-    puffin_D_predict coord [options] <coordinate>
-    puffin_D_predict sequence [options] <fasta_file_path>
-    puffin_D_predict region [options] <tsv_file>
+    predict = puffin_d.predict(sequence)
+    print(predict)
+    predict.to_csv("predict.csv")
+    print("predict Done!")
+
+
+
+    # import sys
+    # from docopt import docopt
+
+    # doc = """
+    # Puffin outputs transcription inititation signal prediciton for the input genome sequence.
     
-    Options:
-    -h --help        Show this screen.
-    --use_cuda    Use CUDA to make the prediciton
-    """
+    # Usage:
+    # puffin_D_predict coord [options] <coordinate>
+    # puffin_D_predict sequence [options] <fasta_file_path>
+    # puffin_D_predict region [options] <tsv_file>
+    
+    # Options:
+    # -h --help        Show this screen.
+    # --use_cuda    Use CUDA to make the prediciton
+    # """
 
-    if len(sys.argv) == 1:
-        sys.argv.append("-h")
+    # if len(sys.argv) == 1:
+    #     sys.argv.append("-h")
 
-    arguments = docopt(doc)
+    # arguments = docopt(doc)
 
-    genome_path = "./resources/hg38.fa"
-    genome = selene_sdk.sequences.Genome(genome_path)
+    # genome_path = "./resources/hg38.fa"
+    # genome = selene_sdk.sequences.Genome(genome_path)
 
-    if arguments["--use_cuda"]:
-        use_cuda = True
-    else:
-        use_cuda = False
+    # if arguments["--use_cuda"]:
+    #     use_cuda = True
+    # else:
+    #     use_cuda = False
 
-    puffin_d = Puffin_D(use_cuda)
+    # puffin_d = Puffin_D(use_cuda)
 
-    seq_list = []
-    name_list = []
-    if arguments["coord"]:
-        chrm, poss = arguments["<coordinate>"].split(":")
-        strand = arguments["<coordinate>"][-1]
-        start = int(poss[:-1]) - 50000
-        end = int(poss[:-1]) + 50000
+    # seq_list = []
+    # name_list = []
+    # if arguments["coord"]:
+    #     chrm, poss = arguments["<coordinate>"].split(":")
+    #     strand = arguments["<coordinate>"][-1]
+    #     start = int(poss[:-1]) - 50000
+    #     end = int(poss[:-1]) + 50000
 
-        if strand == "-":
-            offset = 1
-            strand_ = "minus"
-        else:
-            offset = 0
-            strand_ = "plus"
+    #     if strand == "-":
+    #         offset = 1
+    #         strand_ = "minus"
+    #     else:
+    #         offset = 0
+    #         strand_ = "plus"
 
-        seq = genome.get_sequence_from_coords(
-            chrm, start + offset, end + offset, strand
-        )
-        seq_list.append(seq)
-        name = "puffin_D_" + chrm + "_" + str(start) + "_" + str(end) + "_" + strand_
-        name_list.append(name)
+    #     seq = genome.get_sequence_from_coords(
+    #         chrm, start + offset, end + offset, strand
+    #     )
+    #     seq_list.append(seq)
+    #     name = "puffin_D_" + chrm + "_" + str(start) + "_" + str(end) + "_" + strand_
+    #     name_list.append(name)
 
-    if arguments["sequence"]:
-        fasta_file = open(arguments["<fasta_file_path>"], "r")
-        for line in fasta_file:
-            if line[0] == ">":
-                name = line[1:-1]
-            else:
-                seq = line
+    # if arguments["sequence"]:
+    #     fasta_file = open(arguments["<fasta_file_path>"], "r")
+    #     for line in fasta_file:
+    #         if line[0] == ">":
+    #             name = line[1:-1]
+    #         else:
+    #             seq = line
 
-                if len(seq) != 100000:
-                    print(
-                        "The input sequence lenght should be 100Kbp, current sequence length is "
-                        + str(len(seq))
-                        + " bps"
-                    )
-                    continue
-                else:
-                    seq_list.append(seq)
+    #             if len(seq) != 100000:
+    #                 print(
+    #                     "The input sequence lenght should be 100Kbp, current sequence length is "
+    #                     + str(len(seq))
+    #                     + " bps"
+    #                 )
+    #                 continue
+    #             else:
+    #                 seq_list.append(seq)
 
-                    for s in [
-                        "#",
-                        "%",
-                        "&",
-                        "{",
-                        "}",
-                        "<",
-                        ">",
-                        "*",
-                        "?",
-                        "/",
-                        " ",
-                        "$",
-                        "!",
-                        "'",
-                        '"',
-                        ":",
-                        "@",
-                        "+",
-                        "`",
-                        "|",
-                        "=",
-                    ]:
-                        name = name.replace(s, "_")
-                    name_list.append(name)
+    #                 for s in [
+    #                     "#",
+    #                     "%",
+    #                     "&",
+    #                     "{",
+    #                     "}",
+    #                     "<",
+    #                     ">",
+    #                     "*",
+    #                     "?",
+    #                     "/",
+    #                     " ",
+    #                     "$",
+    #                     "!",
+    #                     "'",
+    #                     '"',
+    #                     ":",
+    #                     "@",
+    #                     "+",
+    #                     "`",
+    #                     "|",
+    #                     "=",
+    #                 ]:
+    #                     name = name.replace(s, "_")
+    #                 name_list.append(name)
 
-    if arguments["region"]:
-        tsv_file = pd.read_csv(arguments["<tsv_file>"], sep="\t")
+    # if arguments["region"]:
+    #     tsv_file = pd.read_csv(arguments["<tsv_file>"], sep="\t")
 
-        for i in range(len(tsv_file)):
-            chrm = tsv_file["chr"].values[i]
-            start = tsv_file["start"].values[i]
-            end = tsv_file["end"].values[i]
-            strand = tsv_file["strand"].values[i]
-            start = int(start)
-            end = int(end)
+    #     for i in range(len(tsv_file)):
+    #         chrm = tsv_file["chr"].values[i]
+    #         start = tsv_file["start"].values[i]
+    #         end = tsv_file["end"].values[i]
+    #         strand = tsv_file["strand"].values[i]
+    #         start = int(start)
+    #         end = int(end)
 
-            if strand == "-":
-                offset = 1
-                strand_ = "minus"
-            else:
-                offset = 0
-                strand_ = "plus"
+    #         if strand == "-":
+    #             offset = 1
+    #             strand_ = "minus"
+    #         else:
+    #             offset = 0
+    #             strand_ = "plus"
 
-            seq = genome.get_sequence_from_coords(
-                chrm, start + offset, end + offset, strand
-            )
+    #         seq = genome.get_sequence_from_coords(
+    #             chrm, start + offset, end + offset, strand
+    #         )
 
-            if len(seq) != 100000:
-                print(
-                    "The input sequence lenght should be 100Kbp, current sequence length is "
-                    + str(len(seq))
-                    + " bps"
-                )
-                continue
-            else:
-                seq_list.append(seq)
-                name = (
-                    "puffin_D_"
-                    + chrm
-                    + "_"
-                    + str(start)
-                    + "_"
-                    + str(end)
-                    + "_"
-                    + strand_
-                )
-                name_list.append(name)
+    #         if len(seq) != 100000:
+    #             print(
+    #                 "The input sequence lenght should be 100Kbp, current sequence length is "
+    #                 + str(len(seq))
+    #                 + " bps"
+    #             )
+    #             continue
+    #         else:
+    #             seq_list.append(seq)
+    #             name = (
+    #                 "puffin_D_"
+    #                 + chrm
+    #                 + "_"
+    #                 + str(start)
+    #                 + "_"
+    #                 + str(end)
+    #                 + "_"
+    #                 + strand_
+    #             )
+    #             name_list.append(name)
 
-    for seq, name in zip(seq_list, name_list):
-        pred = puffin_d.predict(seq)
-        np.save(name, pred)
-        print(name + ".npy" + " Done!")
+    # for seq, name in zip(seq_list, name_list):
+    #     pred = puffin_d.predict(seq)
+    #     np.save(name, pred)
+    #     print(name + ".npy" + " Done!")
